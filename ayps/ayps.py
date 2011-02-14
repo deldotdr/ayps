@@ -16,7 +16,6 @@ import rlcompleter
 
 from twisted.application import service
 from twisted.internet import stdio
-from twisted.internet import reactor
 from twisted.conch.insults import insults
 from twisted.conch import manhole, recvline
 from twisted.python import text
@@ -424,13 +423,15 @@ def buildNamespace():
 class Controller(service.Service):
 
 
-    def __init__(self):
+    def __init__(self, stop_reactor_on_quit=False):
         """
         """
         self.fd = sys.__stdin__.fileno()
         self.fdout = sys.__stdout__.fileno()
         self.standardIO = None
         self.oldSettings = None
+        self.stop_reactor_on_quit = stop_reactor_on_quit
+        sys.path.insert(0,'') # Where is the best place for this?
 
 
     def startService(self):
@@ -469,7 +470,11 @@ class Controller(service.Service):
         Event called by server protocol when user quits shell.
         """
         self._restoreSettings()
-        os.write(self.fd, 'Shell exited. Press Ctrl-c to stop process\n')
+        if self.stop_reactor_on_quit:
+            from twisted.internet import reactor
+            reactor.stop()
+        else:
+            os.write(self.fd, 'Shell exited. Press Ctrl-c to stop process\n')
         
 
     def stopService(self):
@@ -484,7 +489,7 @@ class Controller(service.Service):
         return locals()
 
 if __name__ == "__main__":
-    shell = Controller()
+    shell = Controller(True)
     shell.startService()
     reactor.run()
 
