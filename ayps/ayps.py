@@ -17,6 +17,7 @@ import rlcompleter
 
 from twisted.application import service
 from twisted.internet import stdio
+from twisted.internet import error
 from twisted.conch.insults import insults
 from twisted.conch import manhole, recvline
 from twisted.python import text
@@ -245,6 +246,8 @@ class ConsoleManhole(manhole.Manhole):
             pass
 
         self.factory.shellQuit()
+        if not reason.check(error.ConnectionDone):
+            reason.printTraceback()
 
     def handle_CTRLR(self):
         if self.historysearch:
