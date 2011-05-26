@@ -11,6 +11,7 @@ import os
 import re
 import sys 
 import tty
+import math
 import termios
 import rlcompleter
 
@@ -113,12 +114,13 @@ class ConsoleManhole(manhole.Manhole):
 
     def handle_TAB(self):
         completer = rlcompleter.Completer(self.namespace)
+        def _no_postfix(val, word):
+            return word
+        completer._callable_postfix = _no_postfix
         head_line, tail_line = self.currentLineBuffer()
         search_line = head_line
         cur_buffer = self.lineBuffer
         cur_index = self.lineBufferIndex
-
-        completer = rlcompleter.Completer(self.namespace)
 
         def find_term(line):
             chrs = []
@@ -157,19 +159,60 @@ class ConsoleManhole(manhole.Manhole):
                 else:
                     return letters
 
+        def group(l):
+            """
+            columns is the width the list has to fit into
+            the longest word length becomes the padded length of every word, plus a
+            uniform space padding. The sum of the product of the number of words
+            and the word length plus padding must be less than or equal to the
+            number of columns.
+            """
+            p = os.popen('stty size', 'r')
+            rows, columns = map(int, p.read().split())
+            p.close()
+            l.sort()
+            number_words = len(l)
+            longest_word = len(max(l)) + 2
+            words_per_row = int(columns / (longest_word + 2)) - 1
+            number_rows = int(math.ceil(float(number_words) / words_per_row))
+
+            grouped_words = [list() for i in range(number_rows)]
+            for i, word in enumerate(l):
+                """
+                row, col = divmod(i_word, number_rows)
+                row is the index of element in a print column
+                col is the number of the col list to append to
+                """
+                r, c = divmod(i, number_rows)
+                grouped_words[c].append(pad(word, longest_word))
+            return grouped_words
+
+        def pad(word, full_length):
+            padding = ' ' * (full_length - len(word))
+            return word + padding
+
+        def max(l):
+            last_max = ''
+            for elm in l:
+                if len(elm) > len(last_max):
+                    last_max = elm
+            return last_max
+
         if matches is not None:
             rem = [list(s.partition(search_term)[2]) for s in matches]
             more_letters = progress(rem)
             n = len(more_letters)
             lineBuffer = list(head_line) + more_letters + list(tail_line)
             if len(matches) > 1:
-                match_str = "%s \t\t" * len(matches) % tuple(matches)
-                match_rows = text.greedyWrap(match_str)
+                #match_str = "%s \t\t" * len(matches) % tuple(matches)
+                #match_rows = text.greedyWrap(match_str)
+                groups = group(matches)
                 line = self.lineBuffer
                 self.terminal.nextLine()
                 self.terminal.saveCursor()
-                for row in match_rows:
-                    self.addOutput(row, True)
+                for row in groups:
+                    s = '  '.join(map(str, row))
+                    self.addOutput(s, True)
                 if tail_line:
                     self.terminal.cursorBackward(len(tail_line))
                     self.lineBufferIndex -= len(tail_line)
