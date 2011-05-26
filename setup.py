@@ -6,7 +6,7 @@ except ImportError:
 
 setup(
         name='ayps',
-        version='0.1',
+        version='0.2',
         author='Dorian Raymer',
         author_email='deldotdr@gmail.com',
         install_requires=['Twisted'],
