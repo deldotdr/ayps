@@ -154,7 +154,12 @@ class ConsoleManhole(manhole.Manhole):
         def progress(rem):
             letters = []
             while True:
-                letter = same(*[elm.pop(0) for elm in rem if elm])
+                to_compare = []
+                for elm in rem:
+                    if not elm:
+                        return letters
+                    to_compare.append(elm.pop(0))
+                letter = same(*to_compare)
                 if letter:
                     letters.append(letter)
                 else:
