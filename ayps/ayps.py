@@ -463,40 +463,32 @@ class ConsoleManhole(manhole.Manhole):
             raise ValueError("TODO: no work")
             return info
 
-def buildNamespace():
-    """
-    Create a namespace by importing objects form other modules into this
-    functions local namespace.
-    """
-    # nothing imported currently
-    return locals()
-
 class Controller(service.Service):
 
 
-    def __init__(self, stop_reactor_on_quit=False):
+    def __init__(self, namespace=None, stop_reactor_on_quit=False):
         """
         """
+        if namespace is None:
+            namespace = {}
+        self.namespace = namespace
         self.fd = sys.__stdin__.fileno()
         self.fdout = sys.__stdout__.fileno()
         self.standardIO = None
         self.oldSettings = None
         self.stop_reactor_on_quit = stop_reactor_on_quit
-        sys.path.insert(0,'') # Where is the best place for this?
 
 
     def startService(self):
         service.Service.startService(self)
         self._prepareSettings()
 
-        namespace = self.buildNamespace()
-
-        serverProtocol = insults.ServerProtocol(ConsoleManhole, namespace)
+        serverProtocol = insults.ServerProtocol(ConsoleManhole, self.namespace)
         serverProtocol.factory = self
         self.serverProtocol = serverProtocol
 
         # XXX for live experimentation with the protocol
-        namespace['__tsp'] = serverProtocol
+        self.namespace['__tsp'] = serverProtocol
 
         self.standardIO = stdio.StandardIO(serverProtocol)
 
@@ -532,15 +524,11 @@ class Controller(service.Service):
         service.Service.stopService(self)
         self.standardIO.loseConnection()
 
-    def buildNamespace(self):
-        """
-        Could be a interesting trick to include the service instance (self)
-        in the shell namespace.
-        """
-        return locals()
 
 if __name__ == "__main__":
-    shell = Controller(True)
+    import sys
+    sys.path.insert(0, '')
+    shell = Controller(stop_reactor_on_quit=True)
     shell.startService()
     reactor.run()
 
