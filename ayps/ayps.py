@@ -14,6 +14,7 @@ import tty
 import math
 import termios
 import rlcompleter
+import traceback
 
 from twisted.application import service
 from twisted.internet import stdio
@@ -114,6 +115,23 @@ class ConsoleManhole(manhole.Manhole):
         self.setInsertMode()
 
     def handle_TAB(self):
+        try:
+            self.__handle_TAB()
+        except Exception, e:
+            print "handle_TAB error"
+            print e
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            traceback.print_tb(exc_traceback, limit=1, file=sys.stdout)
+            print "*** print_exception:"
+            traceback.print_exception(exc_type, exc_value, exc_traceback, limit=2, file=sys.stdout)
+            print "*** print_exc:"
+            traceback.print_exc()
+            print "*** format_exc, first and last line:"
+            formatted_lines = traceback.format_exc().splitlines()
+            print formatted_lines[0]
+            print formatted_lines[-1]
+
+    def __handle_TAB(self):
         completer = rlcompleter.Completer(self.namespace)
         def _no_postfix(val, word):
             return word
@@ -527,7 +545,8 @@ class Controller(service.Service):
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, '')
+    from twisted.internet import reactor
+    #sys.path.insert(0, '')
     shell = Controller(stop_reactor_on_quit=True)
     shell.startService()
     reactor.run()
