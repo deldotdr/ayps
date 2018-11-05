@@ -22,6 +22,7 @@ from twisted.internet import error
 from twisted.conch.insults import insults
 from twisted.conch import manhole, recvline
 from twisted.python import text
+from twisted.python.compat import iterbytes
 
 
 CTRL_A = '\x01'
@@ -113,6 +114,16 @@ class ConsoleManhole(manhole.Manhole):
         #self.printHistoryAppendStatus()
         self.terminal.write(self.ps[self.pn])
         self.setInsertMode()
+
+    def _deliverBuffer(self, buf):
+        """
+        Overwrites bug in twisted:
+        https://github.com/twisted/twisted/pull/421#pullrequestreview-21012599
+        """
+        if buf:
+            for ch in iterbytes(buf[:-1]):
+                self.characterReceived(ch, True)
+            self.characterReceived(buf[-1], False)
 
     def handle_TAB(self):
         try:
