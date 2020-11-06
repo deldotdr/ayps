@@ -11,5 +11,8 @@ setup(
         author_email='deldotdr@gmail.com',
         install_requires=['Twisted'],
         packages=['ayps'],
-        scripts=['scripts/ayps']
+        scripts=['scripts/ayps'],
+        use_incremental=True,
+        setup_requires=['incremental'],
+        install_requires=['incremental'],
         )
