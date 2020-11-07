@@ -16,14 +16,18 @@ import termios
 import rlcompleter
 import traceback
 
+import attr
+
 from twisted.application import service
 from twisted.internet import stdio
 from twisted.internet import error
 from twisted.conch.insults import insults
 from twisted.conch import manhole, recvline
+from twisted.python import filepath
 from twisted.python import text
 from twisted.python.compat import iterbytes
 
+from . import __version__
 
 CTRL_A = '\x01'
 CTRL_E = '\x05'
@@ -40,8 +44,88 @@ def get_virtualenv():
                         'lib',
                         'python%d.%d' % sys.version_info[:2],
                         'site-packages')
-        return "[env: %s]" % virtual_env
-    return "[env: system]"
+        return "[environ: %s]" % virtual_env
+    return "[environ: system]"
+
+
+@attr.s
+class HistoryFile(object):
+    maxlines = attr.ib(2500)
+    filename = attr.ib(".ayps_history")
+    directory = attr.ib()
+    fpath = attr.ib(init=False)
+
+    lines = None
+    _file = None
+    _drop = False
+    _last = ""
+
+    def __attrs_post_init__(self):
+        self.lines = self.load()
+
+
+    @directory.default
+    def homedir(self):
+        return os.environ["HOME"]
+
+    @fpath.default
+    def homedir(self):
+        path = os.path.join(self.directory, self.filename)
+        return filepath.FilePath(path)
+
+    @property
+    def len(self):
+        return len(self.lines)
+
+    def load(self):
+        lines = []
+        if self.fpath.exists():
+            self.close()
+            try:
+                lines = self.fpath.getContent().split("\n")[-self.maxlines:]
+            except Exception as e:
+                print "HistoryFile: Load Error %s" % str(e)
+        else:
+            f = self.fpath.create()
+            f.close()
+        self.open()
+        return lines
+
+    def save(self):
+        self.close()
+        self.fpath.setContent("\n".join(self.lines[-self.maxlines:]))
+        self.open()
+
+    def open(self):
+        if self._file is None:
+            self._file = self.fpath.open("a")
+        return self._file
+
+    def close(self):
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def appendModeGet(self):
+        return not self._drop
+
+    def appendModeSet(self, onOff):
+        self._drop = not onOff
+        return onOff
+
+    def appendModeToggle(self):
+        return self.appendModeSet(self._drop)
+
+    def append(self, line):
+        self.lines.append(line)
+        self.open().write(line + "\n")
+
+    def lineReceived(self, line):
+        if self._drop:
+            return
+        if self._last != line:
+            self.append(line)
+            self._last = line
 
 
 class PreprocessedInterpreter(manhole.ManholeInterpreter):
@@ -104,12 +188,14 @@ class ConsoleManhole(manhole.Manhole):
         self.historysearch = False
         self.historysearchbuffer = []
         self.historyFail = False # self.terminal.reset()
+        self.historyFile = HistoryFile()
 
         self.terminal.write('Ayps: Asynchronous Python Shell\r\n')
-        self.terminal.write('If you can read this, a Twisted reactor is running...\r\n')
+        self.terminal.write('If you can read this, a twisted reactor is running...\r\n')
         self.terminal.write('\r\n')
+        self.terminal.write('%s \r\n' % __version__)
         self.terminal.write('%s \r\n' % get_virtualenv())
-        self.terminal.write('[you are: %s@%s.%d] \r\n' % (os.getlogin(), os.uname()[1], os.getpid()))
+        self.terminal.write('[process: %s@%s.%d] \r\n' % (os.getlogin(), os.uname()[1], os.getpid()))
         self.terminal.write('\r\n')
         #self.printHistoryAppendStatus()
         self.terminal.write(self.ps[self.pn])
@@ -263,7 +349,7 @@ class ConsoleManhole(manhole.Manhole):
         # os.write(fd, "\r\x1bc\r")
         # then what?
 
-    def connectionLost(self, reason):
+    def _old_history_save_connectionLost(self, reason):
 
         # save the last 2500 lines of history to the history buffer
         # need a new mechanism to make no_history configurable 
@@ -279,6 +365,9 @@ class ConsoleManhole(manhole.Manhole):
             # REPL. In any case, don't worry about it, and don't clobber history.
             pass
 
+    def connectionLost(self, reason):
+        self.historyFile.save()
+
         self.factory.shellQuit()
         if not reason.check(error.ConnectionDone):
             reason.printTraceback()
@@ -292,14 +381,16 @@ class ConsoleManhole(manhole.Manhole):
 
     def handle_CTRLQ(self):
         self.history_append = not self.history_append;
-        self.ps = PROMPT_HISTORY[self.history_append]
+        history_append = self.historyFile.appendModeToggle()
+        self.ps = PROMPT_HISTORY[history_append]
         self.printHistoryAppendStatus()
         self.drawInputLine()
 
     def printHistoryAppendStatus(self):
         self.terminal.write('\r\n')
         self.terminal.write('History appending is ')
-        if self.history_append:
+        #if self.history_append:
+        if self.historyFile.appendModeGet():
             self.terminal.write('ON')
         else:
             self.terminal.write('OFF')
@@ -321,8 +412,10 @@ class ConsoleManhole(manhole.Manhole):
         if self.lineBuffer:
             curLine = ''.join(self.lineBuffer)
             #if self.history_append and self.historyLines[-1] != curLine:
-            self.historyLines.append(curLine)
-        self.historyPosition = len(self.historyLines)
+            #self.historyLines.append(curLine)
+            self.historyFile.lineReceived(curLine)
+        #self.historyPosition = len(self.historyLines)
+        self.historyPosition = self.historyFile.len
         return recvline.RecvLine.handle_RETURN(self)
 
     def handle_BACKSPACE(self):
@@ -346,6 +439,7 @@ class ConsoleManhole(manhole.Manhole):
     def handle_INT(self):
         self.stopHistorySearch()
         self.historyPosition = len(self.historyLines)
+        #self.historyPosition = self.historyFile.len
         manhole.Manhole.handle_INT(self)
 
     def handle_RIGHT(self):
@@ -382,6 +476,7 @@ class ConsoleManhole(manhole.Manhole):
         # search from history search pos to 0, uninclusive
 
         historyslice = self.historyLines[:self.historyPosition-1]
+        #historyslice = self.historyFile.lines[:self.historyPosition-1]
         cursearch = ''.join(self.historysearchbuffer)
 
         foundone = False
@@ -416,6 +511,7 @@ class ConsoleManhole(manhole.Manhole):
         if self.historysearch:
             self.historyFail = False
             self.historyPosition = len(self.historyLines)
+            #self.historyPosition = self.historyFile.len
             self.historysearchbuffer.append(ch)
             self.findNextMatch()
             self.printHistorySearch()
@@ -424,6 +520,8 @@ class ConsoleManhole(manhole.Manhole):
 
     def connectionMade(self):
         manhole.Manhole.connectionMade(self)
+        self.historyLines = self.historyFile.lines
+        self.historyPosition = self.historyFile.len
 
         preprocess = { re.compile(r'^.*\?$') : self.obj_info }
         self.interpreter = PreprocessedInterpreter(self, self.namespace, preprocess=preprocess)
@@ -436,6 +534,7 @@ class ConsoleManhole(manhole.Manhole):
             ESC: self.handle_ESC,
             })
 
+    def _old_history_init(self):
         # read in history from history file on disk, set internal history/position
         try:
             f = open(os.path.join(os.environ["HOME"], '.ayps_history'), 'r')
@@ -517,7 +616,7 @@ class Controller(service.Service):
         self.serverProtocol = serverProtocol
 
         # XXX for live experimentation with the protocol
-        self.namespace['__tsp'] = serverProtocol
+        self.namespace['_ayps_serverProtocol'] = serverProtocol
 
         self.standardIO = stdio.StandardIO(serverProtocol)
 
