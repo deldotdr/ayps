@@ -7,5 +7,5 @@ Provides ayps version information.
 
 from incremental import Version
 
-__version__ = Version('ayps', 0, 2, 4)
+__version__ = Version('ayps', 0, 3, 0)
 __all__ = ["__version__"]
